@@ -1,0 +1,350 @@
+##########################################
+##### R-Project   ########################
+####################### R-Travel     #####
+##### Adonis Han  ########################
+####################### 2017.08      #####
+##########################################
+
+# 00 BeforeBegins ----------------------------------------------------------
+
+
+# 0.핸들링
+# 분류 - 계절별 묶기
+# 여름에 많이 갈 것 같다.
+# #이용금액이 얼마넘었다라는가?
+# 행사같은걸 했을 때 먹히는 사람 안먹히는 사람 분류.
+# 의사결정나무 분류 rpart fftree ctree
+# 이 알고리즘의 장점은 무엇인지 단점은 무엇인지.
+# 최종적으로 나왔을때 예측은 
+# 하기전과 한 후의 차이 --> 의사결정나무  
+
+# 01 Data handlng ---------------------------------------------------------
+
+sapply(go2, class)
+ind <- sample(1: nrow(go2), 1000)
+index.train <- createDataPartition(go2$price, p = 0.8, list = F)
+go2.train <- go2[index.train, ]
+go2.test <- go2[-index.train, ] #라벨없고 다.
+#라벨은 하나만 있는 것.
+
+
+# for knn price (9)
+go2.train <- go2[ind, -c(9) ]
+go2.test <- go2[-ind, -c(9)]
+
+# for knn country code (2)
+go2.train <- go2[ind, -c(2) ]
+go2.test <- go2[-ind, -c(2)]
+
+# go2 only countrycode.(2)
+go2.traincountrycode <- go2[ind, 2]
+go2.traincountrycode <- go2[-ind,2]
+
+### go2t
+ind <- sample(1: nrow(go2t), 1000)
+
+### w/o countrycode (2)
+go2t.train <- go2t[ind, -c(2)]
+go2t.test <- go2t[-ind, -c(2)]
+
+### only countrycode (2)
+go2t.traincountrycode <- go2t[ind, 2]
+go2t.traincountrycode <- go2t[-ind,2]
+
+
+#Train data
+str(go2t.train)
+str(go2t.traincountrycode)
+
+#Test data
+go2t.test
+go2t.traincountrycode
+## 1)package ---------------------------------------------------------------
+## package
+library(psych)
+library(tseries)
+library(WDI)
+library(ggplot2)
+library(dplyr)
+library(ggmap)
+library(readxl)
+library(data.table)
+library(DT)
+library(reshape2)
+library(reshape)
+library(GGally)
+library(psych)
+library(Hmisc)
+library(agricolae)
+library(rvest)
+library(rpart)
+library(rpart.plot)
+library(corrplot)
+library(lm.beta)
+library(mlbench)
+library(forecast)
+library(randomForest)
+library(adabag)
+library(e1071)
+library(zipcode)
+library(caret)
+
+
+library(class)
+library(repr)
+library(IRdisplay)
+library(evaluate)
+library(crayon)
+library(pbdZMQ)
+library(devtools)
+library(uuid)
+library(digest)
+library(nnet)
+library(gbm)
+
+
+
+## 2)Data Load -----------------------------------------------------------
+
+
+getwd()
+go2 <- readxl::read_excel(path="go2.xlsx", sheet = 1, col_names = TRUE)
+go2t <- read_excel(path = "go2.xlsx", sheet = 1, col_names = TRUE)
+go2r <- read_excel(path = "go2r.xlsx", sheet = 1, col_names = TRUE)
+str(go2)
+head(go2)
+as.data.frame(go2)
+# go2 <- go2[ , -c(2,3,5)]
+# all data type - numeric.
+go2 <- as.numeric(go2[,2])
+sapply(go2, class)
+go2$countrycode <- as.numeric(go2$countrycode)
+go2$lat <- as.numeric(go2$lat)
+
+# go2t : char   - countrycode, purposecode, id, 
+#        double - hotel, revisit
+#        num    - lat,lon,days,people, >>Price<<, use
+#        substr - travelday
+
+sapply(go2t, class)
+DT::datatable(go2t)
+go2t$lat <- as.numeric(go2t$lat)
+go2t$id  <- as.character(go2t$id)
+go2t$`purpose code` <- as.character(go2t$`purpose code`)
+go2t$hotel <- as.double(go2t$hotel)
+go2t$revisit <- as.double(go2t$revisit)
+# go2t$travelday <- as.character(go2t$travelday)
+
+
+# 02 variables ------------------------------------------------------------
+#양적자료 :
+# id(1), go2day(3), people(5), price(7)
+#질적자료 :
+# country code(2), hotel(6)
+
+#Country Code 분해
+go2Europe <- go2[go2$countrycode >=10 & go2$countrycode <30,  ]
+go2Asia <- go2[go2$countrycode >=1 & go2$countrycode <10,  ]
+go2NorAme <- go2[go2$countrycode >=31 & go2$countrycode <40,  ]
+go2Ocean <- go2[go2$countrycode >=41 & go2$countrycode <50,  ]
+go2SouAme <- go2[go2$countrycode >=51 & go2$countrycode <60,  ]
+go2Africa <- go2[go2$countrycode >=61 & go2$countrycode <70,  ]
+
+#Date handling
+#Time series
+
+go2Ts <- ts(go2$travelday, 20150101, 20151231)
+go2Ts <- ts(go2$travelday, 10, c(2015,01))
+plot(go2Ts)
+plot(go2Ts, main = "Multiple Time Series")
+
+# Cor
+go2Cor <- cor(go2)
+# Cor- psych
+go2Cortest <- psych::corr.test(go2)
+# price - hotel, 
+DT::datatable(go2)
+
+#cor - Hmisc
+Hmisc::rcorr(as.matrix(go2))
+pairs(go2, pch = 19, bg = c("red", "green", "blue"))
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+corrplot(go2Cor, 
+         method = "color", 
+         col = col(200), 
+         type = "lower", #왼쪽 아래
+         # order = "hclust", 
+         #유사한 상관계수끼리 군집화
+         addCoef.col = "black", #상관계수
+         tl.col = "black",
+         diag = FALSE )
+#go2[, 9] #price9, countrycode2, travelday5, days6
+plot1 <- ggpairs(data=go2, columns = c(9, c(2,5,6)),
+                 mapping = aes(color = "dark green"), 
+                 axisLabels = "show")
+#go2[, 9] #price9, people7, hotel8
+plot2 <- ggpairs(data=go2, columns = c(9, c(7,8)),
+                 mapping = aes(color = "dark green"), 
+                 axisLabels = "show")
+#go2[, 9] #price9, purposecode10, revisit11, use12
+plot3 <- ggpairs(data=go2, columns = c(9, c(10,11,12)),
+                 mapping = aes(color = "dark green"), 
+                 axisLabels = "show")
+plot1
+plot2
+plot3
+#shapiro - Price
+shapiro.test(go2$price)
+#유의한 차이가 있는 대립가설이다.
+
+
+## 1)LRegression ------------------------------------------------------------
+
+
+## wilcox.test(데이터명$변수명, 
+##        mu = 귀무가설이 참일 때의 모평균, 
+##        alternative = 대립가설 )
+wilcox.test(go2$price, mu = 1500, alternative = "less")
+#True & 
+
+
+# t. test
+t.test(go2$price, go2$hotel)
+t.test(go2$price, go2$countrycode)
+#호텔유무에 따라 유의한 차이가 있음.
+#glm, lm
+go2.lm <- lm(price ~ ., data = go2)
+go2.glm <- glm(hotel ~ price + revisit, family = binomial(link = logit),data = go2)
+summary(go2.lm)
+predictGlm <- predict(go2.glm, go2, type = response) >= 0.5
+table(go2$price, predictGlm)
+# lm(medv ~ ptratio + rad, data=BostonHousing, na.action=na.omit) 결측치 제거시.
+#t4 = lm
+go2.lm.2 <- lm(price ~ ., data = go2)
+summary(go24.lm)
+#id, go2day, days 빼고.
+# Anova : Anallsys of Variance
+#SSE : 집단내 제곱합
+#SSB : 집단 제곱합
+#MSB : Sq / df
+#F   : MSB / MSE 
+anovago2price <- aov(go2$price ~ ., data = go2)
+anovago2code <- aov(go2$countrycode ~ ., data = go2)
+
+summary(anovago2price)
+summary(anovago2code)
+# price 대립.
+TukeyHSD(anovago2price)
+# 
+
+# id, country code 외에 다 상관이 없네. 더 충격인건 id,country code는 진짜 더 상관없음.
+# go2day, days
+# 데이터 좀 더 고쳐보고 다시 할 것. 처음부터!
+
+# 궁금한것 : 검정할때, 일단 변수들로 할 수 있는 검정은 무엇인가요?
+# 양적, 질적자료 맞는지 확인하기.
+
+
+# predict
+# people ~ price
+# Asia 안에서의 분석
+# Europe 안에서의 분석
+# America 안에서의 분석
+
+# id를 다른이름으로 해서 다른것으로 두고.
+
+
+predict(anovago2price)
+# 03 Starts ---------------------------------------------------------------
+
+## 1)SVM -----------------------------------------------------------------
+
+
+#train / test
+index.train <- createDataPartition(go2t$price, p = 0.8, list = F)
+#svm
+svm.go2 <- svm(price ~., data = go2.train)
+summary(svm.go2)
+# # # go2 4 data [train, test]
+# # index4.train <- createDataPartition(go2$price, p = 0.8, list = F)
+# # go24.train <- go2[index4.train, ]
+# # go24.test <- go2[-index4.train, ]
+# #svm
+# svm.go24 <- svm(price ~., data = go24.train)
+# summary(svm.go24)
+
+## Self-Cor
+par(mfrow=c(1,1))
+acf(go2)
+pacf(go2)
+
+# Pred -------------------------------------------------------------------
+
+
+# Predict
+ndiffs(x=go2$price)
+# 1 차분.
+diffPrice <- diff(go2$price, 1)
+adf.test(diffPrice, alternative = "stationary", k = 0)
+auto.arima(go2$price)
+
+pred.go2 <- predict(svm.go2, go2.test)
+confusionMatrix(pred.go2, go2.test$price)
+# go2 4 Predict - No enough Column.
+# pred.go2 <- predict(svm.go2, go2.test)
+
+
+## 2)KNN -------------------------------------------------------------------
+
+### Prediction by "Train" (k=5)
+cl <- as.data.frame(go2t.traincountrycode)[,1]
+go2t.pred <- knn(train = go2t.train, test = go2t.test, cl = cl, k=5)
+# 결측값들이 있어서는 안됩니다. 이런거 나와서 잘안됨.
+
+# 최적의 k 찾기.
+ctrl <- trainControl(method="cv", number = 10)
+cl <- as.data.frame(go2t.traincountrycode$price)[,1]
+go2t.train.cl <- cbind(cl, go2t.train)
+grid <- expand.grid(k=c(1,3,5,7,10,15,20))
+knnFit <- train(cl ~ ., data = go2t.train.cl, method = "knn", trControl = ctrl, tuneGrid=grid)
+knnFit
+
+
+# hotel(8).
+index.train <- createDataPartition(go2$hotel, p = 0.8, list = F)
+go2.traincountrycode <- go2t[ind, 2]
+go2.testcountrycode <- go2t[-ind, 2]
+
+# use, price -> Label : hotel
+go2tHotelTest <- 
+go2tHotelTrain <- go2t[, -8]
+go2tHotelGroup <- go2t[, 8]
+
+#scale : use , price
+go2t$scaleUse <- scale(go2t$use)
+go2t$scalePrice <- scale(go2t$price)
+
+
+scaleTest <- (go2t[ ])
+# (1)num : 
+## 3)DecisionTree ----------------------------------------------------------
+
+
+#decision tree
+
+
+## 4) RandomForest ------------------------------------------------------------
+l
+#Tune fix
+go2.fix <- tune(svm, price ~ people, data = go2,
+                   ranges = list(gamma = 2^(-5:1), cost = 2^(0:4)),
+                   tunecontrol = tune.control(sampling = "fix"))
+summary(go2.fix)
+plot(go2.fix)
+#Tune bootstrap
+go2.bootstrap <- tune(svm, price ~ hotel, data = go2,
+                   ranges = list(gamma = 2^(-5:1), cost = 2^(0:4)),
+                   tunecontrol = tune.control(sampling = "bootstrap"))
+summary(go2.bootstrap)
+plot(go2.bootstrap)
+
